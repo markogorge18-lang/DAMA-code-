@@ -681,7 +681,7 @@
     <div class="welcome-card pop w-full max-w-md rounded-3xl p-6 sm:p-8 relative">
       <button id="welcomeClose" class="hidden absolute top-4 left-4 w-9 h-9 rounded-lg btn-ghost" aria-label="إغلاق">✕</button>
       <!-- زرار تسجيل دخول الأدمن: ظاهر بلون أسود في نفس مكان الزرار المخفي قبل كده -->
-      <button id="secretAdminBtn" class="absolute top-3 right-3 w-10 h-10 rounded-xl flex items-center justify-center text-base shadow-lg" style="background:#000;border:1px solid rgba(255,255,255,.15)" title="تسجيل دخول كأدمن">🔑</button>
+      <button id="secretAdminBtn" class="absolute top-3 right-3 w-10 h-10 rounded-xl flex items-center justify-center text-base shadow-lg" style="background:#000;border:1px solid #d4af37" title="تسجيل دخول كأدمن">🔑</button>
       <!-- الخطوة 1: الاسم -->
       <form id="nameStep" novalidate>
         <div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-gold-400 to-gold-600 flex items-center justify-center text-ink-950 font-black text-2xl shadow-lg" dir="ltr">&lt;/&gt;</div>
@@ -762,7 +762,7 @@
   <div id="adminLoginModal" class="fixed inset-0 z-[100] bg-black/80 hidden items-center justify-center p-4">
     <div class="glass gold-border rounded-2xl p-5 w-full max-w-sm">
       <p class="text-base font-bold text-gold-300 mb-3">🔑 دخول لوحة تحكم بابلو</p>
-      <input id="adminPassInput" type="password" placeholder="اكتب كلمة السر" autocomplete="off" class="name-input w-full rounded-xl px-3 py-3 text-sm mb-3">
+      <input id="adminPassInput" type="password" placeholder="اكتب كلمة السر" autocomplete="off" class="name-input w-full rounded-xl px-3 py-3 text-base mb-3" style="background:#000;color:#fff;caret-color:#fff;border:1px solid #d4af37">
       <div id="adminLoginStatus" class="hidden rounded-xl px-3 py-3 text-sm font-bold text-center mb-3"></div>
       <div class="flex gap-2">
         <button id="adminLoginSubmit" class="btn-gold flex-1 px-4 py-2 rounded-xl text-sm">دخول</button>
