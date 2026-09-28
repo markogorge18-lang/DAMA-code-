@@ -680,8 +680,8 @@
   <div id="welcome" class="fixed inset-0 z-[70] bg-black/70 hidden items-center justify-center p-4">
     <div class="welcome-card pop w-full max-w-md rounded-3xl p-6 sm:p-8 relative">
       <button id="welcomeClose" class="hidden absolute top-4 left-4 w-9 h-9 rounded-lg btn-ghost" aria-label="إغلاق">✕</button>
-      <!-- زرار مخفي (غير مرئي) لفتح لوحة تحكم بابلو بكلمة سر -->
-      <button id="secretAdminBtn" class="absolute top-0 right-0 w-9 h-9" style="background:transparent;border:0;opacity:0;cursor:default" aria-hidden="true" tabindex="-1"></button>
+      <!-- زرار تسجيل دخول الأدمن: ظاهر بلون أسود في نفس مكان الزرار المخفي قبل كده -->
+      <button id="secretAdminBtn" class="rounded-xl flex items-center justify-center text-base shadow-lg" style="position:absolute;top:12px;right:12px;width:40px;height:40px;z-index:5;background:#000;border:1px solid #d4af37" title="تسجيل دخول كأدمن">🔑</button>
       <!-- الخطوة 1: الاسم -->
       <form id="nameStep" novalidate>
         <div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-gold-400 to-gold-600 flex items-center justify-center text-ink-950 font-black text-2xl shadow-lg" dir="ltr">&lt;/&gt;</div>
@@ -759,7 +759,19 @@
   </div>
 
   <!-- الإشعار (Toast) -->
-  <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 translate-y-24 opacity-0 z-[60] px-5 py-3 rounded-2xl glass gold-border text-sm font-semibold shadow-2xl max-w-[90vw] text-center"></div>
+  <div id="adminLoginModal" class="hidden items-center justify-center" style="position:fixed;top:0;right:0;bottom:0;left:0;z-index:100;background:rgba(0,0,0,.82);padding:1rem">
+    <div class="glass gold-border rounded-2xl p-5" style="width:100%;max-width:24rem">
+      <p class="text-base font-bold text-gold-300 mb-3">🔑 دخول لوحة تحكم بابلو</p>
+      <input id="adminPassInput" type="password" placeholder="اكتب كلمة السر" autocomplete="off" class="name-input w-full rounded-xl px-3 py-3 text-base mb-3" style="background:#000;color:#fff;caret-color:#fff;border:1px solid #d4af37">
+      <div id="adminLoginStatus" class="hidden rounded-xl px-3 py-3 text-sm font-bold text-center mb-3"></div>
+      <div class="flex gap-2">
+        <button id="adminLoginSubmit" class="btn-gold flex-1 px-4 py-2 rounded-xl text-sm">دخول</button>
+        <button id="adminLoginCancel" class="btn-ghost px-4 py-2 rounded-xl text-sm">إلغاء</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" style="z-index:110" class="fixed bottom-6 left-1/2 -translate-x-1/2 translate-y-24 opacity-0 z-[60] px-5 py-3 rounded-2xl glass gold-border text-sm font-semibold shadow-2xl max-w-[90vw] text-center"></div>
 
   <script>
   /* =====================================================================
@@ -3195,14 +3207,54 @@
   const isRita = () => isRitaName(state.name);
   // لوحة التحكم متفتحة بس لو اتكتبت كلمة السر السرية الصح (مفيش أي طريقة تانية تفتحها)
   const SECRET_ADMIN_KEY = 'htmlAcademy_secretAdmin';
-  let secretAdminUnlocked = localStorage.getItem(SECRET_ADMIN_KEY) === '1';
+  // الدخول كأدمن مش بيتحفظ خالص: كل ما الصفحة تتفتح أو تتحدّث لازم تكتب كلمة السر تاني، وبنمسح أي تذكّر قديم
+  try { localStorage.removeItem(SECRET_ADMIN_KEY); sessionStorage.removeItem(SECRET_ADMIN_KEY); } catch (e) {}
+  let secretAdminUnlocked = false;
   const isAdmin = () => secretAdminUnlocked;
 
   /* ---- إعدادات قابلة للتغيير من لوحة التحكم (كلمة السر + رقم واتساب الاستقبال) ---- */
   const SETTINGS_KEY = 'htmlAcademy_settings_v1';
   function loadSettings() { try { return JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); } catch (e) { return {}; } }
   function saveSettingsLocal(s) { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); }
-  let ADMIN_PASSWORD = loadSettings().adminPassword || 'Dama456781234Pablo';
+  let ADMIN_PASSWORD = loadSettings().adminPassword || '12345678';
+
+  /* ---- حماية من تخمين كلمة السر: قفل مؤقت بعد محاولات فاشلة متتالية ---- */
+  const LOGIN_LOCK_KEY = 'htmlAcademy_loginLock';
+  function getLoginLock() {
+    try { return JSON.parse(localStorage.getItem(LOGIN_LOCK_KEY) || '{}'); } catch (e) { return {}; }
+  }
+  function setLoginLock(o) { localStorage.setItem(LOGIN_LOCK_KEY, JSON.stringify(o)); }
+  function loginLockStatus() {
+    const s = getLoginLock();
+    if (s.lockUntil && Date.now() < s.lockUntil) {
+      return Math.ceil((s.lockUntil - Date.now()) / 1000);
+    }
+    return 0;
+  }
+  function registerFailedLogin() {
+    const s = getLoginLock();
+    s.fails = (s.fails || 0) + 1;
+    // بعد 3 محاولات غلط: قفل متزايد (30 ثانية، دقيقة، دقيقتين... لحد 10 دقايق)
+    if (s.fails >= 3) {
+      const lockSeconds = Math.min(30 * Math.pow(2, s.fails - 3), 600);
+      s.lockUntil = Date.now() + lockSeconds * 1000;
+    }
+    setLoginLock(s);
+  }
+  function clearLoginLock() { setLoginLock({}); }
+  // بعد ما الأدمن يدخل صح مرة واحدة، الزرار الخفي بيتشال من الصفحة خالص (مش موجود تاني على الجهاز ده)
+  function removeSecretAdminBtn() {
+    const btn = document.getElementById('secretAdminBtn');
+    if (btn) { btn.style.display = 'none'; btn.disabled = true; }
+  }
+  // بترجع الزرار الخفي تاني (مستخدمة لما الأدمن يسجل خروج عشان يقدر يدخل تاني)
+  function restoreSecretAdminBtn() {
+    const btn = document.getElementById('secretAdminBtn');
+    if (btn) { btn.style.display = ''; btn.disabled = false; }
+  }
+  // ⚠️ غيّر الإيميل ده لإيميلك الحقيقي، وسيب نفس القيمة هنا وفي Firestore Security Rules
+  // (لازم تعمل يوزر بنفس الإيميل ده في Firebase Console → Authentication → Users)
+  const ADMIN_EMAIL = 'admin@dama-code-app.com';
   // بيرجع رسالة الخطأ، أو '' لو الاسم تمام
   function nameError(n, allowPablo) {
     n = normName(n);
@@ -4584,6 +4636,7 @@
             </div>
           </div>
           <button id="settingsSaveBtn" class="btn-gold px-4 py-2 rounded-xl text-sm mt-3">💾 حفظ الإعدادات</button>
+          <button id="adminLogoutBtn" class="btn-ghost px-4 py-2 rounded-xl text-sm mt-3 mr-2">🚪 تسجيل خروج من وضع الأدمن</button>
           <p class="text-[11px] text-slate-500 mt-2">الرقم بالصيغة الدولية من غير + أو صفر في الأول، يعني رقم زي 01094393622 يتكتب 201094393622.</p>
         </div>
 
@@ -4598,6 +4651,16 @@
 
         <div id="adminStudentsWrap" class="glass rounded-2xl p-8 text-center text-slate-400">⏳ بيتم تحميل الطلاب...</div>
       </div>`;
+
+    $('#adminLogoutBtn').addEventListener('click', () => {
+      if (!confirm('متأكد إنك عايز تسجل خروج من وضع الأدمن على الجهاز ده؟')) return;
+      secretAdminUnlocked = false;
+      clearLoginLock();
+      restoreSecretAdminBtn();
+      state.current = 1;
+      render();
+      toast('👋 خرجت من وضع الأدمن', 'ok');
+    });
 
     $('#settingsSaveBtn').addEventListener('click', async () => {
       const newPass = $('#settingsPassInput').value.trim();
@@ -5313,20 +5376,91 @@
   });
   ['nameInput', 'honorInput', 'phoneInput', 'codeInput'].forEach(id => $('#' + id).addEventListener('input', (e) => { e.target.classList.remove('bad'); }));
   $('#welcomeClose').addEventListener('click', closeWelcome);
-  $('#secretAdminBtn').addEventListener('click', () => {
-    const pass = prompt('كلمة السر:');
-    if (pass === null) return;
-    if (pass === ADMIN_PASSWORD) {
+  // ---- نافذة إدخال كلمة السر مع مستطيل يبيّن حالة التحقق (جاري التحقق / صح / غلط) ----
+  function showLoginStatus(kind, msg) {
+    const el = $('#adminLoginStatus');
+    const c = {
+      info: ['rgba(59,130,246,.15)', '#93c5fd', 'rgba(59,130,246,.45)'],
+      ok:   ['rgba(34,197,94,.15)',  '#4ade80', 'rgba(34,197,94,.5)'],
+      err:  ['rgba(239,68,68,.15)',  '#f87171', 'rgba(239,68,68,.5)']
+    }[kind];
+    el.classList.remove('hidden');
+    el.textContent = msg;
+    el.style.background = c[0];
+    el.style.color = c[1];
+    el.style.border = '1px solid ' + c[2];
+  }
+  function openAdminModal() {
+    const m = $('#adminLoginModal');
+    $('#adminPassInput').value = '';
+    $('#adminLoginStatus').classList.add('hidden');
+    $('#adminLoginSubmit').disabled = false;
+    m.classList.remove('hidden');
+    m.classList.add('flex');
+    setTimeout(() => $('#adminPassInput').focus(), 50);
+  }
+  function closeAdminModal() {
+    const m = $('#adminLoginModal');
+    m.classList.add('hidden');
+    m.classList.remove('flex');
+  }
+  // بترجّع true لو كلمة السر صح، false لو غلط
+  async function verifyAdminPassword(pass) {
+    // لو Firebase متاح (الصفحة أونلاين من سيرفر حقيقي): تحقق حقيقي من السيرفر
+    if (window._fbAuth && window._fbSignIn) {
+      try { await window._fbSignIn(window._fbAuth, ADMIN_EMAIL, pass); return true; }
+      catch (e) { return false; }
+    }
+    // Firebase مش متاح (ملف محلي / مفيش نت): كلمة السر المحلية
+    return pass === ADMIN_PASSWORD;
+  }
+  async function submitAdminLogin() {
+    const pass = $('#adminPassInput').value;
+    if (!pass) { showLoginStatus('err', '✏️ اكتب كلمة السر الأول'); return; }
+
+    const lockLeft = loginLockStatus();
+    if (lockLeft > 0) {
+      const mins = Math.ceil(lockLeft / 60);
+      showLoginStatus('err', `⛔ محاولات كتير غلط. استنى ${mins > 1 ? mins + ' دقيقة' : lockLeft + ' ثانية'} وجرب تاني`);
+      return;
+    }
+
+    const btn = $('#adminLoginSubmit');
+    btn.disabled = true;
+    showLoginStatus('info', '⏳ جاري التحقق من كلمة السر...');
+    const ok = await verifyAdminPassword(pass);
+
+    if (ok) {
       secretAdminUnlocked = true;
-      localStorage.setItem(SECRET_ADMIN_KEY, '1');
+      clearLoginLock();
+      showLoginStatus('ok', '✅ كلمة السر صح — جاري فتح لوحة التحكم...');
+      setTimeout(() => {
+        closeAdminModal();
+        closeWelcome();
+        finishEntry();
+        goTo(-5);
+      }, 800);
+    } else {
+      registerFailedLogin();
+      showLoginStatus('err', '❌ كلمة السر غلط');
+      btn.disabled = false;
+      $('#adminPassInput').select();
+    }
+  }
+  function attemptAdminLogin() {
+    // لو انت داخل كأدمن أصلاً على الجهاز ده، ادخل اللوحة على طول
+    if (isAdmin()) {
       closeWelcome();
       finishEntry();
       goTo(-5);
-      toast('🛠️ اتفتحت لوحة تحكم بابلو', 'ok');
-    } else {
-      toast('❌ كلمة السر غلط', 'err');
+      return;
     }
-  });
+    openAdminModal();
+  }
+  $('#adminLoginSubmit').addEventListener('click', submitAdminLogin);
+  $('#adminLoginCancel').addEventListener('click', closeAdminModal);
+  $('#adminPassInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitAdminLogin(); });
+  $('#secretAdminBtn').addEventListener('click', attemptAdminLogin);
   $('#changeName').addEventListener('click', () => openWelcome(true));
   $('#pgBtn').addEventListener('click', () => goTo(0));
   $('#dictBtn').addEventListener('click', () => goTo(-1));
@@ -5414,6 +5548,8 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
     import { getFirestore, collection, addDoc, getDocs, doc, setDoc, updateDoc, deleteDoc, getDoc }
       from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
+    import { getAuth, signInWithEmailAndPassword }
+      from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
 
     const app = initializeApp({
       apiKey: "AIzaSyCeIJovLGLItaQl6nGsecCQNkOQ66HEB7A",
@@ -5432,6 +5568,10 @@
     window._fbUpdate = updateDoc;
     window._fbDelete = deleteDoc;
     window._fbGetOne = getDoc;
+
+    // تسجيل دخول حقيقي للأدمن (متحقق منه على سيرفر Firebase، مش مجرد مقارنة نص في المتصفح)
+    window._fbAuth = getAuth(app);
+    window._fbSignIn = signInWithEmailAndPassword;
 
     // دلوقتي Firebase جاهز: نجيب أي إعدادات معدّلة (كلمة سر/رقم واتساب)، ونتأكد لو الطالب متطرود أو له إشعار/أيام مفتوحة
     if (window.checkRemoteSettings) window.checkRemoteSettings();
