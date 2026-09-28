@@ -5311,9 +5311,9 @@
     $('#nameStep').classList.add('hidden'); $('#honorStep').classList.add('hidden'); $('#codeStep').classList.add('hidden');
     $('#phoneStep').classList.remove('hidden');
     $('#phoneStep').dataset.forAdmin = forAdmin ? '1' : '0';
-    $('#phoneTitle').textContent = forAdmin ? 'رقم لوحة التحكم' : 'تأكيد رقم الواتساب';
+    $('#phoneTitle').textContent = forAdmin ? 'رقم الواتساب' : 'تأكيد رقم الواتساب';
     $('#phoneSub').textContent = forAdmin
-      ? 'اكتب رقم واتساب لوحة التحكم عشان تفتحها، أو سيبه فاضي وكمل عادي.'
+      ? 'اكتب رقم واتسابك (اختياري)، أو سيبه فاضي وكمل عادي.'
       : 'اكتب رقم واتسابك، هنبعتلك كود تأكيد عليه عشان نتأكد إنه شغال.';
     $('#phoneSubmitBtn').textContent = forAdmin ? 'تأكيد ←' : '📲 ابعت كود التأكيد ←';
     $('#phoneInput').value = forAdmin ? '' : (state.phone || '');
@@ -5353,9 +5353,9 @@
       state.phoneVerified = (p === ADMIN_PHONE_LOCAL);
       state.verifiedAt = state.verifiedAt || Date.now();
       closeWelcome(); finishEntry();
-      if (p === ADMIN_PHONE_LOCAL) toast('🛠️ اتفتحلك لوحة تحكم بابلو', 'ok');
       return;
     }
+    secretAdminUnlocked = false; // أي تسجيل عادي بيقفل جلسة الأدمن
     pendingPhone = p; pendingCode = genCode();
     window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(whatsappMsg(p, pendingCode))}`, '_blank');
     showCodeStep();
@@ -5364,6 +5364,9 @@
     e.preventDefault();
     const v = $('#codeInput').value.trim();
     if (!v || v !== pendingCode) { $('#codeErr').textContent = 'الكود غلط، جرب تاني'; $('#codeInput').classList.add('bad'); $('#codeInput').focus(); return; }
+    // التسجيل بكود الواتساب = شخص عادي: يفتح كل حاجة ما عدا لوحة تحكم بابلو (دي بكلمة السر بس)
+    secretAdminUnlocked = false;
+    if (state.current === -5) state.current = 1;
     state.phone = pendingPhone; state.phoneVerified = true; state.verifiedAt = Date.now();
     closeWelcome(); finishEntry();
   });
