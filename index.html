@@ -702,7 +702,7 @@
         <p id="honorErr" class="text-rose-400 text-xs mt-2 min-h-[1.25rem]"></p>
         <button type="submit" class="btn-gold w-full py-3 rounded-xl text-lg mt-2">اعمل الشهادة ←</button>
       </form>
-      <!-- الخطوة 3: رقم واتساب (تأكيد للطلاب العاديين، أو فتح لوحة التحكم لبابلو) -->
+      <!-- الخطوة 3: رقم واتساب (تأكيد للأشخاص العاديين، أو فتح لوحة التحكم لبابلو) -->
       <form id="phoneStep" class="hidden" novalidate>
         <div class="text-5xl text-center mb-3">📱</div>
         <h2 id="phoneTitle" class="text-2xl font-black gold-text text-center mb-1 leading-normal">تأكيد رقم الواتساب</h2>
@@ -3288,7 +3288,7 @@
     return c;
   }
 
-  /* ---- سجل الطلاب (محلي على الجهاز ده بس) اللي سجلوا وأكدوا رقمهم ---- */
+  /* ---- سجل الأشخاص (محلي على الجهاز ده بس) اللي سجلوا وأكدوا رقمهم ---- */
   const REGISTRY_KEY = 'htmlAcademy_students_v1';
   const BROADCAST_KEY = 'htmlAcademy_broadcast_v1';
   function loadRegistry() {
@@ -3296,7 +3296,52 @@
     catch (e) { return {}; }
   }
   function saveRegistry(reg) { localStorage.setItem(REGISTRY_KEY, JSON.stringify(reg)); }
-  // بتتنادى بعد كل save() عادي، وبتحدّث بيانات الطالب في السجل المحلي لو رقمه اتأكد
+
+  // بيبعت بيانات الشخص لـ Firebase. لو Firebase لسه ما حمّلش أو النت وقع، بيحاول تاني لحد ما ينجح
+  let _cloudRetry = null, _cloudTries = 0;
+  function pushPersonToCloud() {
+    if (!state.phone || !state.phoneVerified || state.phone === ADMIN_PHONE_LOCAL) return;
+    if (!(window._fbDB && window._fbDoc && window._fbSet)) {
+      if (_cloudTries < 20 && !_cloudRetry) {
+        _cloudTries++;
+        _cloudRetry = setTimeout(() => { _cloudRetry = null; pushPersonToCloud(); }, 2000);
+      }
+      return;
+    }
+    const firstSync = !state.approvalSent;
+    const payload = {
+      name: state.name || '',
+      phone: state.phone,
+      day: state.current,
+      score: totalScore(),
+      doneDays: DAYS.filter(d => isDone(d.id)).length,
+      totalDays: DAYS.length,
+      finalDone: finalDone(),
+      lastSeen: Date.now(),
+      verifiedAt: state.verifiedAt || Date.now(),
+      at: new Date().toISOString(),
+      daysDetail: DAYS.map(d => {
+        const s = state.days[d.id] || { hw: false, examBest: 0, examPassed: false };
+        return { id: d.id, title: d.title, hw: !!s.hw, examPassed: !!s.examPassed, examBest: s.examBest || 0 };
+      })
+    };
+    // أول مرة الرقم ده بيتسجل: يتحط "محتاج موافقة" ولا يدخلش المنصة غير لما الأدمن يقبله
+    if (firstSync) payload.approved = false;
+    window._fbSet(window._fbDoc(window._fbDB, 'students', state.phone), payload, { merge: true })
+      .then(() => {
+        _cloudTries = 0;
+        if (firstSync) { state.approvalSent = true; try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {} }
+      })
+      .catch((e) => {
+        console.error('Firebase write failed:', e);
+        if (_cloudTries < 20 && !_cloudRetry) {
+          _cloudTries++;
+          _cloudRetry = setTimeout(() => { _cloudRetry = null; pushPersonToCloud(); }, 4000);
+        }
+      });
+  }
+  window.pushPersonToCloud = pushPersonToCloud;
+  // بتتنادى بعد كل save() عادي، وبتحدّث بيانات الشخص في السجل المحلي لو رقمه اتأكد
   function syncRegistry() {
     if (!state.phone || !state.phoneVerified || state.phone === ADMIN_PHONE_LOCAL) return;
     const reg = loadRegistry();
@@ -3315,33 +3360,8 @@
     };
     saveRegistry(reg);
 
-    // ===== Firebase: حفظ/تحديث بيانات الطالب في مستند واحد ثابت باسم رقمه =====
-    // (مش بيعمل نسخة جديدة كل مرة، ده بيحدّث نفس السجل عشان يفضل ظاهر في لوحة بابلو
-    //  حتى لو الطالب قفل الموقع أو فتحه من جهاز تاني)
-    if (window._fbDB && window._fbDoc && window._fbSet) {
-      const firstSync = !state.approvalSent;
-      const payload = {
-        name: state.name || '',
-        phone: state.phone,
-        day: state.current,
-        score: totalScore(),
-        doneDays: DAYS.filter(d => isDone(d.id)).length,
-        totalDays: DAYS.length,
-        finalDone: finalDone(),
-        lastSeen: Date.now(),
-        verifiedAt: state.verifiedAt || prev.verifiedAt || Date.now(),
-        at: new Date().toISOString(),
-        daysDetail: DAYS.map(d => {
-          const s = state.days[d.id] || { hw: false, examBest: 0, examPassed: false };
-          return { id: d.id, title: d.title, hw: !!s.hw, examPassed: !!s.examPassed, examBest: s.examBest || 0 };
-        })
-      };
-      // أول مرة الرقم ده بيتسجل: يتحط "محتاج موافقة" ولا يدخلش المنصة غير لما الأدمن يقبله
-      if (firstSync) payload.approved = false;
-      window._fbSet(window._fbDoc(window._fbDB, 'students', state.phone), payload, { merge: true })
-        .then(() => { if (firstSync) { state.approvalSent = true; try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {} } })
-        .catch(() => {});
-    }
+    // ===== Firebase: حفظ/تحديث بيانات الشخص في مستند واحد ثابت باسم رقمه =====
+    pushPersonToCloud();
     // =========================================
   }
 
@@ -3468,7 +3488,7 @@
     $('#cardsBtn').classList.toggle('active', state.current === -4);
     $('#adminBtn').classList.toggle('hidden', !isAdmin());
     $('#adminBtn').classList.toggle('active', state.current === -5);
-    if (isAdmin()) { const reg = loadRegistry(); $('#adminCount').textContent = Object.keys(reg).length + ' طالب مسجل'; }
+    if (isAdmin()) { const reg = loadRegistry(); $('#adminCount').textContent = Object.keys(reg).length + ' شخص مسجل'; }
     $('#examCount').textContent = state.bigExam ? `أعلى درجة ${state.bigExam.best} / ${BIG_N}` : `${BIG_N} سؤال · ${BIG_MIN} دقيقة`;
     $('#cardsCount').textContent = `عارف ${(state.cardsKnown || []).length} من ${TAG_DICT.length}`;
     $('#dictCount').textContent = `${TAG_DICT.length} تاج`;
@@ -4615,13 +4635,13 @@
   }
 
   /* ---------------------------------------------------------------------
-     5-ح) لوحة تحكم بابلو (كل الطلاب اللي أكدوا رقمهم، أونلاين من أي جهاز)
+     5-ح) لوحة تحكم بابلو (كل الأشخاص اللي أكدوا رقمهم، أونلاين من أي جهاز)
      --------------------------------------------------------------------- */
   function renderAdmin() {
     $('#content').innerHTML = `
       <div class="max-w-6xl mx-auto fade-in">
-        ${sectionHead('🛠️', 'لوحة تحكم بابلو', 'كل الطلاب اللي سجلوا وأكدوا رقم واتسابهم، من أي جهاز.',
-          `<div class="text-center shrink-0"><div id="adminTotalCount" class="text-3xl font-black gold-text">…</div><div class="text-xs text-slate-400">طالب</div></div>`)}
+        ${sectionHead('🛠️', 'لوحة تحكم بابلو', 'كل الأشخاص اللي سجلوا وأكدوا رقم واتسابهم، من أي جهاز.',
+          `<div class="text-center shrink-0"><div id="adminTotalCount" class="text-3xl font-black gold-text">…</div><div class="text-xs text-slate-400">شخص</div></div>`)}
 
         <div class="glass rounded-2xl p-4 mb-5">
           <p class="text-sm font-bold text-gold-300 mb-3">⚙️ إعدادات اللوحة</p>
@@ -4641,15 +4661,15 @@
         </div>
 
         <div class="glass rounded-2xl p-4 mb-5">
-          <p class="text-sm font-bold text-gold-300 mb-2">📣 إشعار عام لكل الطلاب</p>
+          <p class="text-sm font-bold text-gold-300 mb-2">📣 إشعار عام لكل الأشخاص</p>
           <div class="flex gap-2">
-            <input id="broadcastInput" type="text" placeholder="اكتب رسالة تظهر لأي طالب يفتح المنصة على الجهاز ده..." class="name-input flex-1 rounded-xl px-3 py-2 text-sm">
+            <input id="broadcastInput" type="text" placeholder="اكتب رسالة تظهر لأي شخص يفتح المنصة على الجهاز ده..." class="name-input flex-1 rounded-xl px-3 py-2 text-sm">
             <button id="broadcastBtn" class="btn-gold px-4 rounded-xl text-sm shrink-0">ابعت</button>
           </div>
-          <p class="text-[11px] text-slate-500 mt-2">⚠️ ده بس بيظهر لمين بيستخدم نفس الجهاز ده. الإشعار الخاص بكل طالب (تحت) شغال أونلاين لأي جهاز.</p>
+          <p class="text-[11px] text-slate-500 mt-2">⚠️ ده بس بيظهر لمين بيستخدم نفس الجهاز ده. الإشعار الخاص بكل شخص (تحت) شغال أونلاين لأي جهاز.</p>
         </div>
 
-        <div id="adminStudentsWrap" class="glass rounded-2xl p-8 text-center text-slate-400">⏳ بيتم تحميل الطلاب...</div>
+        <div id="adminStudentsWrap" class="glass rounded-2xl p-8 text-center text-slate-400">⏳ بيتم تحميل الأشخاص...</div>
       </div>`;
 
     $('#adminLogoutBtn').addEventListener('click', () => {
@@ -4682,24 +4702,24 @@
       if (!v) return;
       localStorage.setItem(BROADCAST_KEY, JSON.stringify({ text: v, at: Date.now() }));
       $('#broadcastInput').value = '';
-      toast('📣 اتبعت الإشعار لكل الطلاب', 'ok');
+      toast('📣 اتبعت الإشعار لكل الأشخاص', 'ok');
     });
 
     loadAdminStudents();
   }
 
-  // بيجيب كل الطلاب من Firebase (أونلاين، من أي جهاز)، ولو النت مقطوع بيرجع للسجل المحلي كبديل
+  // بيجيب كل الأشخاص من Firebase (أونلاين، من أي جهاز)، ولو النت مقطوع بيرجع للسجل المحلي كبديل
   async function loadAdminStudents() {
     const fmt = (t) => t ? new Date(t).toLocaleString('ar-EG', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
     let rows = [];
-    let online = false;
+    let online = false, fbErr = '';
     if (window._fbDB && window._fbCol && window._fbGet) {
       try {
         const snap = await window._fbGet(window._fbCol(window._fbDB, 'students'));
         snap.forEach(d => rows.push({ phone: d.id, ...d.data() }));
         online = true;
-      } catch (e) {}
-    }
+      } catch (e) { fbErr = (e && (e.code || e.message)) || 'error'; console.error('Firebase read failed:', e); }
+    } else { fbErr = 'Firebase لسه ما حمّلش'; }
     if (!online) {
       const reg = loadRegistry();
       rows = Object.values(reg);
@@ -4712,12 +4732,13 @@
     if (!wrap) return; // المستخدم يمكن خرج من الصفحة قبل ما الطلب يخلص
 
     if (!rows.length) {
-      wrap.innerHTML = `<div class="text-slate-400">لسه محدش سجّل${online ? '' : ' (مفيش نت دلوقتي)'}.</div>`;
+      wrap.innerHTML = `<div class="text-slate-400">لسه محدش سجّل${online ? '' : ' (مش قادر أوصل للسيرفر: ' + esc(fbErr) + ')'}.</div>`;
       return;
     }
 
     wrap.className = 'space-y-3';
-    wrap.innerHTML = rows.map(r => {
+    const warn = online ? '' : `<div class="rounded-xl p-3 text-xs text-rose-300 border border-rose-500/40 bg-rose-500/10">⚠️ مش قادر أجيب الأشخاص من السيرفر (${esc(fbErr)})، اللي ظاهر دلوقتي من الجهاز ده بس. لو الخطأ permission-denied، عدّل Firestore Rules.</div>`;
+    wrap.innerHTML = warn + rows.map(r => {
       const pending = r.approved === false;
       const tempBlocked = r.blockedUntil && r.blockedUntil > Date.now();
       const statusBadge = pending
@@ -4747,7 +4768,7 @@
         </div>` : ''}
 
         <div class="flex flex-wrap gap-2 mb-2">
-          <input data-notice-input="${esc(r.phone)}" type="text" placeholder="إشعار خاص بالطالب ده..." class="name-input flex-1 min-w-[160px] rounded-lg px-3 py-1.5 text-xs">
+          <input data-notice-input="${esc(r.phone)}" type="text" placeholder="إشعار خاص بالشخص ده..." class="name-input flex-1 min-w-[160px] rounded-lg px-3 py-1.5 text-xs">
           <button data-notice-btn="${esc(r.phone)}" class="btn-ghost text-xs px-3 py-1.5 rounded-lg">ابعت</button>
           <input data-grant-input="${esc(r.phone)}" type="number" min="1" max="${DAYS.length}" placeholder="افتح له N يوم" class="name-input w-28 rounded-lg px-3 py-1.5 text-xs">
           <button data-grant-btn="${esc(r.phone)}" class="btn-ghost text-xs px-3 py-1.5 rounded-lg">🔓 افتحله</button>
@@ -4836,12 +4857,12 @@
       const phone = b.dataset.blockBtn;
       const nowBlocked = b.dataset.blocked !== '1';
       await adminUpdateStudent(phone, { blocked: nowBlocked });
-      toast(nowBlocked ? '🚫 اتطرد الطالب، مش هيقدر يستخدم المنصة' : '✅ رجعله الدخول', nowBlocked ? 'err' : 'ok');
+      toast(nowBlocked ? '🚫 اتطرد الشخص، مش هيقدر يستخدم المنصة' : '✅ رجعله الدخول', nowBlocked ? 'err' : 'ok');
       renderAdmin();
     }));
     $$('[data-del]').forEach(b => b.addEventListener('click', async () => {
       const phone = b.dataset.del;
-      if (!confirm('متأكد إنك عايز تمسح الطالب ده نهائي؟ مش هترجع.')) return;
+      if (!confirm('متأكد إنك عايز تمسح الشخص ده نهائي؟ مش هترجع.')) return;
       if (window._fbDB && window._fbDoc && window._fbDelete) {
         try { await window._fbDelete(window._fbDoc(window._fbDB, 'students', phone)); } catch (e) {}
       }
@@ -4850,7 +4871,7 @@
     }));
   }
 
-  // بتحدّث سجل طالب معيّن أونلاين (موافقة / بلوك / إشعار / فتح أيام)، ولو النت مقطوع بتحدّث السجل المحلي كبديل
+  // بتحدّث سجل شخص معيّن أونلاين (موافقة / بلوك / إشعار / فتح أيام)، ولو النت مقطوع بتحدّث السجل المحلي كبديل
   async function adminUpdateStudent(phone, data) {
     if (window._fbDB && window._fbDoc && window._fbSet) {
       try { await window._fbSet(window._fbDoc(window._fbDB, 'students', phone), data, { merge: true }); return; }
@@ -4890,8 +4911,8 @@
     if (changed) { if (rec) { reg[state.phone] = rec; saveRegistry(reg); } save(); }
   }
 
-  // بتتنفذ لما Firebase يكون جاهز: بتتأكد من السجل الأونلاين بتاع الطالب (بلوك / إشعار / أيام مفتوحة)
-  // ده اللي بيخلي تحكم الأدمن يشتغل حتى لو الأدمن والطالب مش على نفس الجهاز
+  // بتتنفذ لما Firebase يكون جاهز: بتتأكد من السجل الأونلاين بتاع الشخص (بلوك / إشعار / أيام مفتوحة)
+  // ده اللي بيخلي تحكم الأدمن يشتغل حتى لو الأدمن والشخص مش على نفس الجهاز
   async function applyRemoteRules() {
     if (!window._fbDB || !window._fbDoc || !window._fbGetOne) return;
     if (!state.phone || !state.phoneVerified) return;
@@ -4951,20 +4972,20 @@
   }
   window.checkRemoteSettings = loadRemoteSettings;
 
-  // شاشة كاملة بتمنع الطالب اللي اتطرد (دايمًا) من استخدام المنصة
+  // شاشة كاملة بتمنع الشخص اللي اتطرد (دايمًا) من استخدام المنصة
   function showBlockedOverlay() {
     showLockOverlay('🚫', 'تم إيقافك من الأدمن', 'حد من الأدمن هو اللي وقفك. استنى لحد ما يرجّعوك.');
   }
-  // شاشة كاملة للطالب اللي لسه محتاج موافقة الأدمن على تسجيله
+  // شاشة كاملة للشخص اللي لسه محتاج موافقة الأدمن على تسجيله
   function showPendingOverlay() {
     showLockOverlay('🕒', 'حسابك قيد المراجعة', 'استنى حد من الأدمن يقبلك، وهيتفعّل حسابك أوتوماتيك بعد كده.');
   }
-  // شاشة كاملة للطالب اللي متوقف مؤقتًا لحد وقت معيّن
+  // شاشة كاملة للشخص اللي متوقف مؤقتًا لحد وقت معيّن
   function showTempBlockedOverlay(until) {
     const t = new Date(until).toLocaleString('ar-EG', { dateStyle: 'medium', timeStyle: 'short' });
     showLockOverlay('⏸️', 'تم إيقافك مؤقتًا من الأدمن', `حد من الأدمن هو اللي وقفك. استنى لحد ما يرجّعوك، أو هيرجعلك الدخول أوتوماتيك بعد: ${t}`);
   }
-  // شاشة تحميل بسيطة بتتعرض لحد ما نتأكد من حالة الطالب أونلاين (عشان الموقع ميديش فرصة استخدام قبل التأكد)
+  // شاشة تحميل بسيطة بتتعرض لحد ما نتأكد من حالة الشخص أونلاين (عشان الموقع ميديش فرصة استخدام قبل التأكد)
   function showCheckingOverlay() {
     showLockOverlay('⏳', 'بيتم التحقق من حسابك...', 'لحظات وهيفتح لك الموقع.');
   }
@@ -4982,7 +5003,7 @@
       <div style="font-size:13px;color:#94a3b8">${esc(sub)}</div>
     </div>`;
   }
-  // بتشيل شاشة القفل/التحقق بعد ما نتأكد إن الطالب مسموحله
+  // بتشيل شاشة القفل/التحقق بعد ما نتأكد إن الشخص مسموحله
   function hideLockOverlay() {
     const div = document.getElementById('blockedOverlay');
     if (div) div.remove();
@@ -5285,7 +5306,7 @@
     showPhoneStep(false);
   });
 
-  /* ---- رقم الواتساب: تأكيد للطلاب العاديين، أو فتح لوحة تحكم بابلو ---- */
+  /* ---- رقم الواتساب: تأكيد للأشخاص العاديين، أو فتح لوحة تحكم بابلو ---- */
   function showPhoneStep(forAdmin) {
     $('#nameStep').classList.add('hidden'); $('#honorStep').classList.add('hidden'); $('#codeStep').classList.add('hidden');
     $('#phoneStep').classList.remove('hidden');
@@ -5525,11 +5546,11 @@
   if (state.current > 0 && !isCurrentUnlocked(state.current)) state.current = 1;
   render();
   applyAdminActions();
-  // طالب سجل وأكد رقمه قبل كده: نمنعه يستخدم أي حاجة لحد ما نتأكد أونلاين إنه مش موقوف/محتاج موافقة
+  // شخص سجل وأكد رقمه قبل كده: نمنعه يستخدم أي حاجة لحد ما نتأكد أونلاين إنه مش موقوف/محتاج موافقة
   // (عشان ميلحقش يستخدم المنصة في اللحظة بين ما الصفحة تفتح وبين ما التأكد يخلص)
   if (state.phone && state.phoneVerified) {
     showCheckingOverlay();
-    // لو مفيش نت أصلًا أو Firebase اتأخر، منسيبش الطالب واقف على الشاشة دي للأبد
+    // لو مفيش نت أصلًا أو Firebase اتأخر، منسيبش الشخص واقف على الشاشة دي للأبد
     // (الموقع أصلاً شغال من غير نت)، فبنشيلها بعد فترة قصيرة لو محدش رد
     setTimeout(hideLockOverlay, 6000);
   }
@@ -5573,7 +5594,8 @@
     window._fbAuth = getAuth(app);
     window._fbSignIn = signInWithEmailAndPassword;
 
-    // دلوقتي Firebase جاهز: نجيب أي إعدادات معدّلة (كلمة سر/رقم واتساب)، ونتأكد لو الطالب متطرود أو له إشعار/أيام مفتوحة
+    // دلوقتي Firebase جاهز: نجيب أي إعدادات معدّلة (كلمة سر/رقم واتساب)، ونتأكد لو الشخص متطرود أو له إشعار/أيام مفتوحة
+    if (window.pushPersonToCloud) window.pushPersonToCloud();
     if (window.checkRemoteSettings) window.checkRemoteSettings();
     if (window.checkRemoteAdmin) window.checkRemoteAdmin();
   </script>
