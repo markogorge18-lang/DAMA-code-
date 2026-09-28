@@ -4663,7 +4663,7 @@
         <div class="glass rounded-2xl p-4 mb-5">
           <p class="text-sm font-bold text-gold-300 mb-2">📣 إشعار عام لكل الأشخاص</p>
           <div class="flex gap-2">
-            <input id="broadcastInput" type="text" placeholder="اكتب رسالة تظهر لأي شخص يفتح المنصة على الجهاز ده..." class="name-input flex-1 rounded-xl px-3 py-2 text-sm">
+            <input id="broadcastInput" type="text" placeholder="اكتب رسالة تظهر لكل الأشخاص أول ما يفتحوا المنصة..." class="name-input flex-1 rounded-xl px-3 py-2 text-sm">
             <button id="broadcastBtn" class="btn-gold px-4 rounded-xl text-sm shrink-0">ابعت</button>
           </div>
           <p class="text-[11px] text-slate-500 mt-2">⚠️ ده بس بيظهر لمين بيستخدم نفس الجهاز ده. الإشعار الخاص بكل شخص (تحت) شغال أونلاين لأي جهاز.</p>
@@ -4697,10 +4697,15 @@
       toast('✅ اتحفظت الإعدادات', 'ok');
     });
 
-    $('#broadcastBtn').addEventListener('click', () => {
+    $('#broadcastBtn').addEventListener('click', async () => {
       const v = $('#broadcastInput').value.trim();
       if (!v) return;
-      localStorage.setItem(BROADCAST_KEY, JSON.stringify({ text: v, at: Date.now() }));
+      const bc = { text: v, at: Date.now() };
+      try { localStorage.setItem(BROADCAST_KEY, JSON.stringify(bc)); } catch (e) {}
+      if (window._fbDB && window._fbDoc && window._fbSet) {
+        try { await window._fbSet(window._fbDoc(window._fbDB, 'settings', 'app'), { broadcast: bc }, { merge: true }); }
+        catch (e) { toast('❌ الإشعار ما وصلش للأشخاص (' + ((e && (e.code || e.message)) || 'error') + ')', 'err'); return; }
+      }
       $('#broadcastInput').value = '';
       toast('📣 اتبعت الإشعار لكل الأشخاص', 'ok');
     });
@@ -4808,7 +4813,7 @@
     }));
     $$('[data-approve-btn]').forEach(b => b.addEventListener('click', async () => {
       const phone = b.dataset.approveBtn;
-      await adminUpdateStudent(phone, { approved: true });
+      if (!(await adminUpdateStudent(phone, { approved: true }))) return;
       toast('✅ اتقبل تسجيله، هيقدر يدخل دلوقتي', 'ok');
       renderAdmin();
     }));
@@ -4817,7 +4822,7 @@
       const input = $(`[data-notice-input="${phone}"]`);
       const v = input.value.trim();
       if (!v) return;
-      await adminUpdateStudent(phone, { pendingNotice: v });
+      if (!(await adminUpdateStudent(phone, { pendingNotice: v, noticeAt: Date.now() }))) return;
       input.value = ''; toast('✅ اتبعت الإشعار', 'ok');
     }));
     $$('[data-grant-btn]').forEach(b => b.addEventListener('click', async () => {
@@ -4825,7 +4830,7 @@
       const input = $(`[data-grant-input="${phone}"]`);
       const n = Math.max(1, Math.min(DAYS.length, +input.value || 0));
       if (!n) return;
-      await adminUpdateStudent(phone, { grantDays: n });
+      if (!(await adminUpdateStudent(phone, { grantDays: n }))) return;
       input.value = ''; toast(`🔓 هيتفتحله ${n} يوم لما يفتح الموقع تاني`, 'ok');
     }));
     $$('[data-score-btn]').forEach(b => b.addEventListener('click', async () => {
@@ -4833,7 +4838,7 @@
       const input = $(`[data-score-input="${phone}"]`);
       const n = Math.max(0, Math.min(MAX_SCORE, +input.value));
       if (input.value === '' || isNaN(+input.value)) return;
-      await adminUpdateStudent(phone, { scoreOverride: n });
+      if (!(await adminUpdateStudent(phone, { scoreOverride: n }))) return;
       input.value = ''; toast(`✏️ هتتظبط درجته لـ ${n}/${MAX_SCORE} لما يفتح الموقع تاني`, 'ok');
     }));
     $$('[data-temp-btn]').forEach(b => b.addEventListener('click', async () => {
@@ -4843,20 +4848,20 @@
       const n = Math.max(1, +nInput.value || 0);
       if (!n) { toast('اكتب عدد الساعات أو الأيام', 'err'); return; }
       const ms = n * (unit === 'hour' ? 3600000 : 86400000);
-      await adminUpdateStudent(phone, { blockedUntil: Date.now() + ms });
+      if (!(await adminUpdateStudent(phone, { blockedUntil: Date.now() + ms }))) return;
       toast(`⏸️ اتوقف ${n} ${unit === 'hour' ? 'ساعة' : 'يوم'}، هيرجعله الدخول لوحده بعد كده`, 'ok');
       renderAdmin();
     }));
     $$('[data-resume-btn]').forEach(b => b.addEventListener('click', async () => {
       const phone = b.dataset.resumeBtn;
-      await adminUpdateStudent(phone, { blockedUntil: 0 });
+      if (!(await adminUpdateStudent(phone, { blockedUntil: 0 }))) return;
       toast('▶️ رجعله الدخول دلوقتي', 'ok');
       renderAdmin();
     }));
     $$('[data-block-btn]').forEach(b => b.addEventListener('click', async () => {
       const phone = b.dataset.blockBtn;
       const nowBlocked = b.dataset.blocked !== '1';
-      await adminUpdateStudent(phone, { blocked: nowBlocked });
+      if (!(await adminUpdateStudent(phone, { blocked: nowBlocked }))) return;
       toast(nowBlocked ? '🚫 اتطرد الشخص، مش هيقدر يستخدم المنصة' : '✅ رجعله الدخول', nowBlocked ? 'err' : 'ok');
       renderAdmin();
     }));
@@ -4864,7 +4869,8 @@
       const phone = b.dataset.del;
       if (!confirm('متأكد إنك عايز تمسح الشخص ده نهائي؟ مش هترجع.')) return;
       if (window._fbDB && window._fbDoc && window._fbDelete) {
-        try { await window._fbDelete(window._fbDoc(window._fbDB, 'students', phone)); } catch (e) {}
+        try { await window._fbDelete(window._fbDoc(window._fbDB, 'students', phone)); }
+        catch (e) { toast('❌ ما اتمسحش (' + ((e && (e.code || e.message)) || 'error') + ')', 'err'); return; }
       }
       const reg2 = loadRegistry(); delete reg2[phone]; saveRegistry(reg2);
       renderAdmin();
@@ -4872,13 +4878,18 @@
   }
 
   // بتحدّث سجل شخص معيّن أونلاين (موافقة / بلوك / إشعار / فتح أيام)، ولو النت مقطوع بتحدّث السجل المحلي كبديل
+  // بترجع true لو التعديل وصل فعلاً للسيرفر، وfalse (مع رسالة خطأ واضحة) لو فشل، عشان متبقاش بتحسب إنه اتنفذ وهو ما اتنفذش
   async function adminUpdateStudent(phone, data) {
     if (window._fbDB && window._fbDoc && window._fbSet) {
-      try { await window._fbSet(window._fbDoc(window._fbDB, 'students', phone), data, { merge: true }); return; }
-      catch (e) {}
+      try { await window._fbSet(window._fbDoc(window._fbDB, 'students', phone), data, { merge: true }); return true; }
+      catch (e) {
+        console.error('Admin update failed:', e);
+        toast('❌ التعديل ما وصلش للشخص (' + ((e && (e.code || e.message)) || 'error') + '). راجع Firestore Rules وسجّل دخول الأدمن تاني.', 'err');
+        return false;
+      }
     }
-    const reg2 = loadRegistry();
-    if (reg2[phone]) { Object.assign(reg2[phone], data); saveRegistry(reg2); }
+    toast('❌ Firebase لسه ما حمّلش، جرّب كمان لحظات', 'err');
+    return false;
   }
 
   // بتتنفذ عند فتح المنصة: تطبيق أي إشعار أو أيام مفتوحة بعتهالك الأدمن (لو نفس الجهاز)
@@ -4894,17 +4905,17 @@
           if (!s.hw || !s.examPassed) { s.hw = true; s.examPassed = true; s.examBest = Math.max(s.examBest || 0, 5); }
         }
         rec.grantDays = 0; changed = true;
-        setTimeout(() => toast('🔓 الأدمن فتحلك أيام جديدة!', 'ok'), 400);
+        setTimeout(() => showAdminMessage('🔓 الأدمن فتحلك أيام جديدة!'), 400);
       }
       if (rec.pendingNotice) {
-        setTimeout(() => toast('📣 ' + rec.pendingNotice, 'ok'), 900);
+        setTimeout(() => showAdminMessage(rec.pendingNotice), 900);
         rec.pendingNotice = ''; changed = true;
       }
     }
     try {
       const bc = JSON.parse(localStorage.getItem(BROADCAST_KEY) || 'null');
       if (bc && bc.at !== state.lastBroadcastSeen) {
-        setTimeout(() => toast('📣 ' + bc.text, 'ok'), 1400);
+        setTimeout(() => showAdminMessage(bc.text), 1400);
         state.lastBroadcastSeen = bc.at; changed = true;
       }
     } catch (e) {}
@@ -4913,6 +4924,7 @@
 
   // بتتنفذ لما Firebase يكون جاهز: بتتأكد من السجل الأونلاين بتاع الشخص (بلوك / إشعار / أيام مفتوحة)
   // ده اللي بيخلي تحكم الأدمن يشتغل حتى لو الأدمن والشخص مش على نفس الجهاز
+  let _lastNoticeKey = '';
   async function applyRemoteRules() {
     if (!window._fbDB || !window._fbDoc || !window._fbGetOne) return;
     if (!state.phone || !state.phoneVerified) return;
@@ -4932,7 +4944,7 @@
           if (!s.hw || !s.examPassed) { s.hw = true; s.examPassed = true; s.examBest = Math.max(s.examBest || 0, 5); }
         }
         updates.grantDays = 0; changed = true;
-        setTimeout(() => toast('🔓 الأدمن فتحلك أيام جديدة!', 'ok'), 400);
+        setTimeout(() => showAdminMessage('🔓 الأدمن فتحلك أيام جديدة!'), 400);
       }
       if (rec.scoreOverride != null && !isNaN(rec.scoreOverride)) {
         let remaining = Math.max(0, Math.min(MAX_SCORE, +rec.scoreOverride));
@@ -4943,10 +4955,11 @@
           remaining -= give;
         });
         updates.scoreOverride = null; changed = true;
-        setTimeout(() => toast('✏️ الأدمن عدّل درجتك', 'ok'), 700);
+        setTimeout(() => showAdminMessage('✏️ الأدمن عدّل درجتك'), 700);
       }
       if (rec.pendingNotice) {
-        setTimeout(() => toast('📣 ' + rec.pendingNotice, 'ok'), 1200);
+        const nKey = (rec.noticeAt || '') + '|' + rec.pendingNotice;
+        if (nKey !== _lastNoticeKey) { _lastNoticeKey = nKey; showAdminMessage(rec.pendingNotice); }
         updates.pendingNotice = ''; changed = true;
       }
       if (changed) {
@@ -4956,6 +4969,14 @@
     } catch (e) { hideLockOverlay(); }
   }
   window.checkRemoteAdmin = applyRemoteRules;
+  // متابعة مستمرة: أي حاجة الأدمن يعملها (إشعار/بلوك/فتح أيام/درجة) توصل للشخص خلال ثواني من غير ما يعمل ريفريش
+  function _pollAdminActions() {
+    if (document.hidden || secretAdminUnlocked) return;
+    applyRemoteRules();
+    if (window.checkRemoteSettings) window.checkRemoteSettings();
+  }
+  setInterval(_pollAdminActions, 8000);
+  document.addEventListener('visibilitychange', _pollAdminActions);
 
   // بتجيب الإعدادات (كلمة السر + رقم الواتساب) من Firebase لو الأدمن غيّرها من جهاز تاني
   async function loadRemoteSettings() {
@@ -4967,10 +4988,40 @@
         if (s.adminPassword) ADMIN_PASSWORD = s.adminPassword;
         if (s.whatsappNumber) WHATSAPP_NUMBER = s.whatsappNumber;
         saveSettingsLocal({ adminPassword: ADMIN_PASSWORD, whatsappNumber: WHATSAPP_NUMBER });
+        if (s.broadcast && s.broadcast.text && state.phone && state.phoneVerified && !secretAdminUnlocked && s.broadcast.at !== state.lastBroadcastSeen) {
+          state.lastBroadcastSeen = s.broadcast.at; save();
+          showAdminMessage(s.broadcast.text);
+        }
       }
     } catch (e) {}
   }
   window.checkRemoteSettings = loadRemoteSettings;
+
+
+  // رسالة من الأدمن: بتظهر في نص الشاشة على خلفية سودة، وفيها زرار "قريتها"
+  const _adminMsgQueue = [];
+  function showAdminMessage(text) {
+    _adminMsgQueue.push(String(text));
+    if (!document.getElementById('adminMsgOverlay')) _renderNextAdminMsg();
+  }
+  function _renderNextAdminMsg() {
+    const old = document.getElementById('adminMsgOverlay');
+    if (old) old.remove();
+    const text = _adminMsgQueue.shift();
+    if (text == null) return;
+    const div = document.createElement('div');
+    div.id = 'adminMsgOverlay';
+    div.style.cssText = 'position:fixed;inset:0;z-index:100000;background:#000;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;color:#fff;font-family:Cairo,Tahoma,sans-serif;direction:rtl';
+    div.innerHTML = `<div style="max-width:420px;width:100%">
+      <div style="font-size:44px;margin-bottom:10px">📣</div>
+      <div style="font-size:14px;color:#d4af37;font-weight:800;margin-bottom:14px">الأدمن بعت</div>
+      <div style="font-size:20px;font-weight:700;line-height:1.8;margin-bottom:26px;white-space:pre-wrap;word-break:break-word">${esc(text)}</div>
+      <button id="adminMsgOk" style="background:linear-gradient(135deg,#f5d76e,#b8912a);color:#1a1200;font-weight:800;font-size:16px;padding:12px 40px;border-radius:14px;border:0;cursor:pointer">قريتها</button>
+    </div>`;
+    document.body.appendChild(div);
+    document.getElementById('adminMsgOk').addEventListener('click', _renderNextAdminMsg);
+  }
+  window.showAdminMessage = showAdminMessage;
 
   // شاشة كاملة بتمنع الشخص اللي اتطرد (دايمًا) من استخدام المنصة
   function showBlockedOverlay() {
